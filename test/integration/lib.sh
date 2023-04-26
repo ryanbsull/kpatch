@@ -38,11 +38,15 @@ kpatch_ubuntu_dependencies()
 
 kpatch_rhel_dependencies()
 {
-	local kernel_version
+	local kernel
+	local kernel_pkg
+	local kernel_pkg_version
 	local arch
 	local rhel_major
 	local yum_utils_version
-	kernel_version=$(uname -r)
+	kernel=$(rpm --query --whatprovides /boot/vmlinuz-$(uname -r))
+	kernel_pkg=$(rpm --query --queryformat="%{name}" $kernel | sed 's/-core//')
+	kernel_pkg_version=$(rpm --query --queryformat="%{version}" $kernel)
 	arch=$(uname -m)
 	rhel_major=${VERSION_ID%%.*}
 
@@ -53,19 +57,19 @@ kpatch_rhel_dependencies()
 		gcc \
 		gcc-c++ \
 		git \
-		"kernel-devel-${kernel_version%.*}" \
+		"${kernel_pkg}-devel-${kernel_pkg_version}" \
 		rpm-build \
 		wget \
 		yum-utils
-	sudo debuginfo-install -y "kernel-${kernel_version%.*}"
+	sudo debuginfo-install -y "${kernel_pkg}-${kernel_pkg_version}"
 	[[ "$arch" == "ppc64le" ]] && sudo yum install -y gcc-plugin-devel
 
 	# kernel dependencies
 	yum_utils_version=$(rpm -q --queryformat="%{version}" yum-utils)
 	if [[ "${yum_utils_version}" = "$(echo -e "${yum_utils_version}\\n4.0.12" | sort -rV | head -n1)" ]]; then
-		sudo yum-builddep -y --skip-unavailable "kernel-${kernel_version%.*}"
+		sudo yum-builddep -y --skip-unavailable "${kernel_pkg}-${kernel_pkg_version}"
 	else
-		sudo yum-builddep -y "kernel-${kernel_version%.*}"
+		sudo yum-builddep -y "${kernel_pkg}-${kernel_pkg_version}"
 	fi
 	[[ "$arch" == "x86_64" ]] && sudo yum install -y pesign
 

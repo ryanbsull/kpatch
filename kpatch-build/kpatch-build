@@ -39,6 +39,9 @@ set -o pipefail
 BASE="$PWD"
 SCRIPTDIR="$(readlink -f "$(dirname "$(type -p "$0")")")"
 ARCH="$(uname -m)"
+KERNEL="$(rpm --query --whatprovides /boot/vmlinuz-$(uname -r))"
+KERNPKG="$(rpm --query --queryformat="%{name}" $KERNEL | sed 's/-core//')"
+KERNPKGVER="$(rpm --query --queryformat="%{version}" $KERNEL)"
 CPUS="$(getconf _NPROCESSORS_ONLN)"
 CACHEDIR="${CACHEDIR:-$HOME/.kpatch}"
 KERNEL_SRCDIR="$CACHEDIR/src"
@@ -176,6 +179,7 @@ cleanup() {
 
 	[[ "$DEBUG" -eq 0 ]] && rm -rf "$TEMPDIR"
 	rm -rf "$RPMTOPDIR"
+	rm -rf "$RPMDIR"
 	unset KCFLAGS
 	unset KCPPFLAGS
 }
@@ -779,9 +783,12 @@ if [[ -n "$SRCRPM" ]]; then
 		exit 1
 	fi
 	rpmname="$(basename "$SRCRPM")"
-	ARCHVERSION="${rpmname%.src.rpm}.$(uname -m)"
+	RPMDIR="$CACHEDIR/rpm/"
+	mkdir -p $RPMDIR
+	rpm2cpio $SRCRPM | cpio -idmv -D $RPMDIR > /dev/null 2>&1
+	specfile=$(ls "$RPMDIR" | grep "\.spec")
+	ARCHVERSION="$(rpmspec -q --provides "$RPMDIR/$specfile" | awk '/^kernel =/{print $NF}' | head -n1).$(uname -m)"
 	ARCHVERSION="${ARCHVERSION#kernel-}"
-	ARCHVERSION="${ARCHVERSION#alt-}"
 fi
 
 if [[ -n "$OOT_MODULE" ]] &&  [[ -z "$OOT_MODULE_SRCDIR" ]]; then
@@ -836,7 +843,6 @@ if [[ "$ARCHVERSION" =~ - ]]; then
 	KREL="${ARCHVERSION##*-}"
 	KREL="${KREL%.*}"
 fi
-[[ "$ARCHVERSION" =~ .el7a. ]] && ALT="-alt"
 
 [[ -z "$TARGETS" ]] && TARGETS="vmlinux modules"
 
@@ -895,21 +901,22 @@ else
 
 		clean_cache
 
-		echo "Downloading kernel source for $ARCHVERSION"
+		KERNSRC=$(echo $KERNEL | sed 's|\(.*\)\..*|\1|' | sed 's/-core//')
+		echo "Downloading kernel source for $KERNPKG-$KERNPKGVER"
 		if [[ -z "$SRCRPM" ]]; then
 			if [[ "$DISTRO" = fedora ]]; then
 				wget -P "$TEMPDIR" "http://kojipkgs.fedoraproject.org/packages/kernel/$KVER/$KREL/src/kernel-$KVER-$KREL.src.rpm" 2>&1 | logger || die
 			else
 				command -v yumdownloader &>/dev/null || die "yumdownloader (yum-utils or dnf-utils) not installed"
-				yumdownloader --source --destdir "$TEMPDIR" "kernel$ALT-$KVER-$KREL" 2>&1 | logger || die
+				yumdownloader --source --destdir "$TEMPDIR" "$KERNPKG-$KERNPKGVER" 2>&1 | logger || die
 			fi
-			SRCRPM="$TEMPDIR/kernel$ALT-$KVER-$KREL.src.rpm"
+			SRCRPM="$TEMPDIR/$KERNSRC.src.rpm"
 		fi
 
 		echo "Unpacking kernel source"
 
 		rpm -D "_topdir $RPMTOPDIR" -ivh "$SRCRPM" 2>&1 | logger || die
-		rpmbuild -D "_topdir $RPMTOPDIR" -bp --nodeps "--target=$(uname -m)" "$RPMTOPDIR"/SPECS/kernel$ALT.spec 2>&1 | logger ||
+		rpmbuild -D "_topdir $RPMTOPDIR" -bp --nodeps "--target=$(uname -m)" "$RPMTOPDIR"/SPECS/$KERNPKG.spec 2>&1 | logger ||
 			die "rpmbuild -bp failed.  you may need to run 'yum-builddep kernel' first."
 
 		if [[ "$DISTRO" = openEuler ]]; then
@@ -931,7 +938,7 @@ else
 		if [[ "$DISTRO" = openEuler ]]; then
 			[[ -z "$CONFIGFILE" ]] && CONFIGFILE="/boot/config-${ARCHVERSION}"
 		else
-			[[ -z "$CONFIGFILE" ]] && CONFIGFILE="$KERNEL_SRCDIR/configs/kernel$ALT-$KVER-$ARCH.config"
+			[[ -z "$CONFIGFILE" ]] && CONFIGFILE="$KERNEL_SRCDIR/configs/$KERNPKG-$KERNPKGVER-$ARCH.config"
 		fi
 
 		(cd "$KERNEL_SRCDIR" && make mrproper 2>&1 | logger) || die
