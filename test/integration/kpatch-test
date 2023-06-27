@@ -120,8 +120,10 @@ else
 fi
 
 error() {
-	echo "ERROR: $*" |tee -a $LOG >&2
-	ERROR=$((ERROR + 1))
+	if [[ $(echo $LOG | grep -q "orphan section") == 1 ]]; then
+		echo "ERROR: $*" |tee -a $LOG >&2
+		ERROR=$((ERROR + 1))
+	fi
 }
 
 log() {
