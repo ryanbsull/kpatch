@@ -65,7 +65,6 @@ struct analysis_card {
 	unsigned long modifiers;
 } results;
 
-
 static void push_new_streamid(int streamid)
 {
 	int *ptr;
@@ -177,6 +176,16 @@ static int check_global_changes(struct position pos, const char *name, struct an
 	return 0;
 }
 
+static int check_sibling_call(struct position pos, const char *name, struct analysis_card *results)
+{
+	/*if (results->namespace == NS_SYMBOL && results->type == SYM_FN &&
+	    results->base->) {
+		return 1;
+	}*/
+	show_symbol(results->base);
+	return 0;
+}
+
 static void evaluate_change(struct position pos, const char *name)
 {
 	if (pos.changed) {
@@ -185,6 +194,7 @@ static void evaluate_change(struct position pos, const char *name)
 		check_notrace(pos, name, &results);
 		check_init(pos, name, &results);
 		check_global_changes(pos, name, &results);
+		check_sibling_call(pos, name, &results);
 	}
 }
 
