@@ -37,7 +37,7 @@
 #include "scope.h"
 #include "symbol.h"
 
-#define _DEBUG 0
+#define _DEBUG 3
 
 #ifdef _DEBUG
 #define debug(level, args...) do {	\
@@ -89,7 +89,7 @@ static void push_new_change(struct change_list **list, char *fname, int sline, i
 	change->resultline = rline;
 	change->numlines = num;
 
-	debug(2, "change line: %s %d %d %d\n", change->pathname, change->sourceline,
+	debug(2, "DEBUG: change line: %s %d %d %d\n", change->pathname, change->sourceline,
 	      change->resultline, change->numlines);
 
 	add_ptr_list(list, change);
@@ -180,7 +180,7 @@ static int check_global_changes(struct position pos, const char *name, struct an
 static void evaluate_change(struct position pos, const char *name)
 {
 	if (pos.changed) {
-		debug(1, "EVAL: <%s> changed at line %d, running checks...\n",
+		debug(1, "DEBUG: EVAL: <%s> changed at line %d, running checks...\n",
 		      name, pos.line);
 		check_notrace(pos, name, &results);
 		check_init(pos, name, &results);
@@ -278,7 +278,7 @@ static void inspect_expression(struct expression *expr)
 	if (!expr)
 		return;
 
-	debug(3, "expr[%-30s] %30s:%d:%d changed:%d\n",
+	debug(3, "    expr[%-30s] %30s:%d:%d changed:%d\n",
 	      expression_type_name(expr->type), stream_name(expr->pos.stream),
 	      expr->pos.line, expr->pos.pos, expr->pos.changed);
 
@@ -329,7 +329,7 @@ static void inspect_statement(struct statement *stmt)
 	if (!stmt)
 		return;
 
-	debug(3, "stmt[%-30s] %30s:%d:%d changed:%d\n",
+	debug(3, "    stmt[%-30s] %30s:%d:%d changed:%d\n",
 	      statement_type_name(stmt->type), stream_name(stmt->pos.stream),
 	      stmt->pos.line, stmt->pos.pos, stmt->pos.changed);
 
@@ -412,7 +412,7 @@ static void inspect_symbol(struct symbol *sym)
 		break;
 	}
 
-	debug(2, "symb[%-30s] %30s:%d:%d ns:%d type:%d changed:%d\n",
+	debug(2, "  symb[%-30s] %30s:%d:%d ns:%d type:%d changed:%d\n",
 	        builtin_typename(sym) ?: show_ident(sym->ident),
 	        stream_name(sym->pos.stream), sym->pos.line, sym->pos.pos,
 	        sym->namespace, sym->type, sym->pos.changed);
@@ -459,7 +459,7 @@ static void register_stream(struct symbol_list *list, const char *file)
 
 	if (list) {
 		sym = first_ptr_list((struct ptr_list *)list);
-		debug(2, "new stream id: %d (%s)\n", sym->pos.stream, file);
+		debug(2, "DEBUG: new stream id: %d (%s)\n", sym->pos.stream, file);
 		push_new_streamid(sym->pos.stream);
 	}
 }
