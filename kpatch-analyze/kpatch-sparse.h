@@ -14,10 +14,12 @@ enum scopes {
 
 struct analysis_card {
 	struct symbol *base;
+	struct statement *ret_stmt;
 	enum scopes scope;
 	enum type type:8;
 	enum namespace namespace:9;
 	unsigned long modifiers;
+	unsigned short edited:1;
 };
 
 #endif

@@ -130,6 +130,9 @@ static void evaluate_change(struct position pos, const char *name)
 		check_notrace(pos, name, &results);
 		check_init(pos, name, &results);
 		check_global_changes(pos, name, &results);
+		results.edited = 1;
+	}
+	if (strcmp(name, "STMT_RETURN") == 0 && results.edited) {
 		check_sibling_call(pos, name, &results);
 	}
 }
@@ -278,6 +281,9 @@ static void inspect_statement(struct statement *stmt)
 	debug(3, "    stmt[%-30s] %30s:%d:%d changed:%d\n",
 	      statement_type_name(stmt->type), stream_name(stmt->pos.stream),
 	      stmt->pos.line, stmt->pos.pos, stmt->pos.changed);
+
+	if (stmt->type == STMT_RETURN)
+		results.ret_stmt = stmt;
 
 	evaluate_change(stmt->pos, statement_type_name(stmt->type));
 
