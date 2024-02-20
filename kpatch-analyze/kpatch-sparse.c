@@ -32,10 +32,12 @@
 #include <fcntl.h>
 #include <assert.h>
 
+#include "kpatch-sparse.h"
 #include "expression.h"
 #include "parse.h"
 #include "scope.h"
 #include "symbol.h"
+#include "checks.h"
 
 #define _DEBUG 3
 
@@ -51,19 +53,7 @@
 struct change_list *kpatch_changelist;
 static struct streamid_list *file_streams;
 
-enum scopes {
-	SCOPE_NONE = 0,
-	SCOPE_FILE = 1,
-	SCOPE_GLOBAL = 2,
-};
-
-struct analysis_card {
-	struct symbol *base;
-	enum scopes scope;
-	enum type type:8;
-	enum namespace namespace:9;
-	unsigned long modifiers;
-} results;
+struct analysis_card results;
 
 static void push_new_streamid(int streamid)
 {
@@ -130,60 +120,6 @@ static void import_changelist(struct change_list **list)
 	if (errno != 0)
 		die("error while reading patch change list info file: %s\n", strerror(errno));
 	fclose(fp);
-}
-
-static void show_changed_symbol(struct position pos, const char *name)
-{
-	if (name == NULL)
-		name = "<noname>";
-	printf("%s:%d:%d change at '%s':\n", stream_name(pos.stream),
-	        pos.line, pos.pos, name);
-}
-
-static int check_notrace(struct position pos, const char *name, struct analysis_card *results)
-{
-	if (results->namespace == NS_SYMBOL && results->type == SYM_FN &&
-	    results->modifiers & MOD_NOTRACE) {
-		show_changed_symbol(pos, name);
-		printf("REPORT: patch changes code in a function with a 'notrace' modifier.\n"
-		       "Livepatch cannot apply changes to those functions. A workaround is needed.\n\n");
-		return 1;
-	}
-	return 0;
-}
-
-static int check_init(struct position pos, const char *name, struct analysis_card *results)
-{
-	if (results->namespace == NS_SYMBOL && results->type == SYM_FN &&
-	    results->modifiers & MOD_INIT) {
-		show_changed_symbol(pos, name);
-		printf("REPORT: patch changes code in a function with a 'init' modifier.\n"
-		       "Livepatch cannot apply changes to those functions. A workaround is needed.\n\n");
-		return 1;
-	}
-	return 0;
-}
-
-static int check_global_changes(struct position pos, const char *name, struct analysis_card *results)
-{
-	if (results->namespace != NS_SYMBOL || (results->namespace == NS_SYMBOL &&
-	    results->type != SYM_FN)) {
-		show_changed_symbol(pos, name);
-		printf("REPORT: patch changes data structures or definitions outside functions which\n"
-		       "cannot be patched by Livepatch. A workaround like shadow variables is needed.\n\n");
-		return 1;
-	}
-	return 0;
-}
-
-static int check_sibling_call(struct position pos, const char *name, struct analysis_card *results)
-{
-	/*if (results->namespace == NS_SYMBOL && results->type == SYM_FN &&
-	    results->base->) {
-		return 1;
-	}*/
-	show_symbol(results->base);
-	return 0;
 }
 
 static void evaluate_change(struct position pos, const char *name)
