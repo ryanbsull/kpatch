@@ -34,6 +34,7 @@
  * the output object.
  */
 
+#include <libelf.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -3895,12 +3896,63 @@ static void kpatch_build_strings_section_data(struct kpatch_elf *kelf)
  * kernel livepatch_handler code to save/restore the stack r2 value, but this
  * is easier for now.
  */
-static void kpatch_no_sibling_calls_ppc64le(struct kpatch_elf *kelf)
+
+static size_t get_toc_func(void* dest, char* src) {
+	Elf *elf = NULL;
+	Elf_Scn *scn = NULL;
+	Elf_Data *data = NULL;
+	Elf64_Shdr *shdr = NULL;
+	char *sec_name = NULL;
+	int fd;
+	size_t shstrndx = 0, data_size = 0;
+
+	elf_version(EV_CURRENT);
+
+	fd = open(src, O_RDONLY, 0);
+	elf = elf_begin(fd, ELF_C_READ, NULL);
+
+	elf_getshdrstrndx(elf, &shstrndx);
+
+	while ((scn = elf_nextscn(elf, scn)) != NULL) {
+		shdr = elf64_getshdr(scn);
+		sec_name = elf_strptr(elf, shstrndx, shdr->sh_name);
+		if (strcmp(sec_name, ".text") == 0) {
+			while ((data = elf_getdata(scn, data)) != NULL) {
+				memcpy(dest + data_size, data->d_buf, data->d_size);
+				data_size += data->d_size;
+			}
+		}
+	}
+	return data_size;
+}
+
+static struct symbol *generate_toc_stub(struct kpatch_elf *kelf, struct symbol *sym, unsigned int offset) {
+	struct symbol *toc_sym;
+	struct section *toc_sec;
+	void *toc_func;
+
+	if (!find_section_by_name(&kelf->sections, ".kpatch.ppc_stub"))
+		toc_sec = create_section_pair(kelf, ".kpatch.ppc_stub", 10, 4);
+	else
+		toc_sec = find_section_by_name(&kelf->sections, ".kpatch.ppc_stub");
+	toc_func = toc_sec->data->d_buf;
+	// putting in absolute value for now at root TODO: add to environment in build script
+	get_toc_func(toc_func, "/root/ppc_stub.o");
+	ALLOC_LINK(toc_sym, &kelf->symbols);
+	toc_sym->sec = toc_sec;
+	toc_sym->sym.st_info = GELF_ST_INFO(STB_LOCAL, STT_FUNC);
+	toc_sym->type = STT_FUNC;
+	toc_sym->bind = STB_LOCAL;
+	toc_sym->name = ".kpatch.ppc_stub";
+	return toc_sym;
+}
+
+static void kpatch_fix_sibling_calls_ppc64le(struct kpatch_elf *kelf)
 {
-	struct symbol *sym;
+	struct symbol *sym, *toc_sym;
 	unsigned char *insn;
 	unsigned int offset;
-	int sibling_call_errors = 0;
+	struct rela *ppc_rela, *orig, *repl = (struct rela*)malloc(sizeof(struct rela));
 
 	if (kelf->arch != PPC64)
 		return;
@@ -3934,15 +3986,33 @@ static void kpatch_no_sibling_calls_ppc64le(struct kpatch_elf *kelf)
 			if (!find_rela_by_offset(sym->sec->rela, offset))
 				continue;
 
-			log_normal("Found an unsupported sibling call at %s()+0x%lx.  Add __attribute__((optimize(\"-fno-optimize-sibling-calls\"))) to %s() definition.\n",
-			      sym->name, sym->sym.st_value + offset, sym->name);
-			sibling_call_errors++;
+			log_normal("Found sibling call at %s()+0x%lx.\n",
+			      sym->name, sym->sym.st_value + offset);
+			toc_sym = generate_toc_stub(kelf, sym, offset);
+			/* Create rela section entry where:
+			 * sib-call insn -> .kpatch.ppc_stub
+			 * rather than -> orig sib-call func
+			 */
+			list_for_each_entry(orig, &sym->sec->rela->relas, list) {
+				if (orig->offset == (sym->sym.st_value + offset)) {
+					break;
+				}
+			}
+			ALLOC_LINK(ppc_rela, &toc_sym->sec->relas);
+			ppc_rela->sym = orig->sym;
+			ppc_rela->rela = orig->rela;
+			ppc_rela->addend = 0;
+			ppc_rela->type = orig->type;
+			ppc_rela->type = absolute_rela_type(kelf);
+			ppc_rela->offset = (unsigned int)(32);
+			repl->sym = toc_sym;
+			repl->addend = orig->addend;
+			repl->offset = orig->offset;
+			repl->type = orig->type;
+			repl->rela = orig->rela;
+			list_replace(&orig->list, &repl->list);
 		}
 	}
-
-	if (sibling_call_errors)
-		ERROR("Found %d unsupported sibling call(s) in the patched code.",
-		      sibling_call_errors);
 }
 
 /* Check which functions have fentry/mcount calls; save this info for later use. */
@@ -4136,8 +4206,8 @@ int main(int argc, char *argv[])
 	 */
 	kpatch_elf_teardown(kelf_patched);
 
-	kpatch_no_sibling_calls_ppc64le(kelf_out);
-
+	/* Change sibling calls to regular calls */
+	kpatch_fix_sibling_calls_ppc64le(kelf_out);
 	/* create strings, patches, and klp relocation sections */
 	kpatch_create_strings_elements(kelf_out);
 	kpatch_create_patches_sections(kelf_out, lookup, parent_name);
